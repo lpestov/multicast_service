@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: UDP
+      dockerfile: server/Dockerfile
+    ports:
+      - "8080:8080/udp"
+    networks:
+      - game_net
+    stdin_open: true
+    tty: true
+    command: ["./server"] 
+
+  client:
+    build:
+      context: UDP
+      dockerfile: client/Dockerfile
+    depends_on:
+      - server
+    networks:
+      - game_net
+    environment:
+      - CLIENT_NAME=Client
+    deploy:
+      replicas: 3
+
+networks:
+  game_net:
+    driver: bridge
