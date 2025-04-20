@@ -1,0 +1,31 @@
+# --- Этап 1: Сборка ---
+FROM ubuntu:latest AS builder
+LABEL stage=builder
+
+# Устанавливаем необходимые пакеты для сборки
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем рабочую директорию внутри контейнера-сборщика
+WORKDIR /build
+
+# Копируем исходный код сервера и общие файлы
+COPY src/common.h src/common.cpp src/server.cpp ./
+
+# Компилируем сервер
+# -static-libgcc -static-libstdc++ могут помочь избежать проблем с зависимостями в runner'е
+RUN g++ -std=c++11 -Wall -pthread common.cpp server.cpp -o server -static-libgcc -static-libstdc++
+
+# --- Этап 2: Финальный образ ---
+FROM ubuntu:latest
+LABEL stage=runner
+
+# Устанавливаем рабочую директорию в финальном контейнере
+WORKDIR /app
+
+# Копируем ТОЛЬКО скомпилированный бинарник из этапа сборки
+COPY --from=builder /build/server .
+
+# Команда для запуска сервера при старте контейнера
+CMD ["./server"]

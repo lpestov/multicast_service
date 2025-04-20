@@ -1,0 +1,43 @@
+version: '3.8' # Используем одну из последних версий docker-compose
+
+services:
+  # --- Сервис Сервера ---
+  server:
+    build:
+      context: . # Контекст сборки - корневая папка проекта
+      dockerfile: docker/Dockerfile.server # Путь к Dockerfile сервера
+    image: multicast-server:latest # Имя образа (опционально)
+    container_name: multicast_server # Имя контейнера (опционально)
+    # !!! Важно для Multicast и прямого ответа от клиента к серверу !!!
+    # Позволяет контейнеру использовать сетевой стек хоста.
+    # Сервер будет слушать на 0.0.0.0:5008 хоста.
+    # Клиенты должны будут указать реальный IP хоста (см. ниже).
+    # Упрощает работу multicast в Docker, но снижает изоляцию.
+    network_mode: "host"
+    restart: unless-stopped # Перезапускать, если не остановлен вручную
+
+  # --- Сервис Клиента ---
+  client:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.client
+    image: multicast-client:latest
+    # НЕ указываем container_name, т.к. будем запускать несколько копий
+    network_mode: "host" # Клиенты тоже используют сеть хоста
+    environment:
+      # !!! КРИТИЧЕСКИ ВАЖНО: Замените '192.168.1.100' на РЕАЛЬНЫЙ IP-адрес !!!
+      # !!! вашей хост-машины в локальной сети (той, где вы запускаете docker-compose). !!!
+      # !!! Узнать IP можно командой 'ip addr show' или 'ifconfig'. Ищите IP вашего LAN интерфейса (eth0, wlan0, etc.). !!!
+      # !!! Не используйте 127.0.0.1 здесь, если сервер в Docker, т.к. клиент будет искать его на 127.0.0.1 *хоста*. !!!
+      - SERVER_UNICAST_IP=10.66.66.140  # <====== ЗАМЕНИТЕ ЭТОТ IP !!!
+    depends_on:
+      - server # Запускать клиент ПОСЛЕ попытки запуска сервера (не гарантирует, что сервер готов)
+    # Запускаем 3 экземпляра клиента (можно изменить количество)
+    deploy:
+      replicas: 3
+    restart: unless-stopped
+
+# Замечание: network_mode: host упрощает работу с multicast, но если бы мы
+# использовали стандартные сети docker (bridge), клиенту нужно было бы
+# отправлять PONG на DNS-имя сервиса 'server' (SERVER_UNICAST_IP=server),
+# а multicast мог бы не работать без доп. настроек docker daemon или macvlan.
