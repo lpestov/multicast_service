@@ -1,4 +1,3 @@
-// server/server.cpp
 #include <iostream>
 #include <unordered_map>
 #include <vector>
@@ -17,61 +16,56 @@
 #include <atomic>
 
 #define PORT 8080
-#define TIMEOUT 10  // Секунд неактивности до пометки "неактивен"
-#define GAME_TIMEOUT 15  // Секунд на ожидание выбора игрока
+#define TIMEOUT 10
+#define GAME_TIMEOUT 15
 
 enum GameChoice { ROCK, PAPER, SCISSORS, INVALID };
 
-std::unordered_map<std::string, GameChoice> current_choices; // Выборы в текущем раунде игры
+std::unordered_map<std::string, GameChoice> current_choices;
 std::mutex clients_mutex, game_mutex;
-bool game_running = false; // Флаг, что игра активна
+bool game_running = false;
 
 struct ClientInfo {
     std::string name;
     std::string hardware;
-    time_t last_seen; // Время последнего PING
-    bool active; // Флаг активности
+    time_t last_seen;
+    bool active;
 };
 
-std::unordered_map<std::string, ClientInfo> clients; // Ключ - "ip:port"
+std::unordered_map<std::string, ClientInfo> clients;
 int server_socket;
-std::atomic<bool> server_running = true; // Флаг для корректной остановки
+std::atomic<bool> server_running = true;
 
 void handle_signal(int sig) {
     std::cout << "\n[Server] Получен сигнал " << sig << ", инициируем завершение работы сервера..." << std::endl;
     server_running = false;
-    shutdown(server_socket, SHUT_RDWR); // Прерываем блокирующий recvfrom
+    shutdown(server_socket, SHUT_RDWR);
 }
 
-// Поток для проверки активности клиентов
 void update_clients() {
     std::cout << "[Update Thread] Поток проверки активности запущен (проверки каждые ~3 сек)." << std::endl;
     while (server_running) {
-        // Пауза ~3 секунды
         for (int i = 0; i < 30 && server_running; ++i) {
-            usleep(100000); // 0.1 секунды
+            usleep(100000);
         }
         if (!server_running) break; {
-            // Блокируем мьютекс для работы со списком клиентов
             std::lock_guard<std::mutex> lock(clients_mutex);
             time_t now = time(nullptr);
-            // std::cout << "[Update Thread] Проверка активности клиентов..." << std::endl; // Убираем лишний лог
+            // std::cout << "[Update Thread] Проверка активности клиентов..." << std::endl;
             int became_inactive_count = 0;
             for (auto &[addr, client]: clients) {
                 bool was_active = client.active;
-                // Если с последнего PING прошло больше TIMEOUT секунд -> неактивен
                 client.active = (now - client.last_seen) <= TIMEOUT;
                 if (was_active && !client.active) {
-                    // Логируем ТОЛЬКО изменение статуса на НЕАКТИВЕН
                     std::cout << "[Update Thread] Клиент " << client.name << " (" << addr <<
                             ") стал НЕАКТИВНЫМ (таймаут)." << std::endl;
                     became_inactive_count++;
                 }
             }
-            // std::cout << "[Update Thread] Проверка завершена." << std::endl; // Убираем лишний лог
-        } // Мьютекс освобождается
+            // std::cout << "[Update Thread] Проверка завершена." << std::endl;
+        }
     }
-    std::cout << "[Update Thread] Поток проверки активности завершен." << std::endl;
+    // std::cout << "[Update Thread] Поток проверки активности завершен." << std::endl;
 }
 
 GameChoice string_to_choice(const std::string &s) {
@@ -90,13 +84,12 @@ std::string choice_to_string(GameChoice c) {
     }
 }
 
-// Отправка сообщения только АКТИВНЫМ клиентам
 void send_to_all_active(const std::string &message) {
     std::cout << "[Send All Active] Отправка сообщения всем активным: \"" << message << "\"" << std::endl;
     std::lock_guard<std::mutex> lock(clients_mutex);
     int sent_count = 0;
     for (const auto &[addr, client]: clients) {
-        if (!client.active) continue; // Отправляем только активным
+        if (!client.active) continue;
 
         size_t colon = addr.find(':');
         if (colon == std::string::npos) { continue; }
@@ -113,24 +106,22 @@ void send_to_all_active(const std::string &message) {
         ssize_t bytes_sent = sendto(server_socket, message.c_str(), message.size(), 0,
                                     (sockaddr *) &client_addr, sizeof(client_addr));
         if (bytes_sent < 0) {
-            // Ошибку можно логировать, но чтобы не спамить - выборочно
-            // std::cerr << "[Send All Active] Ошибка отправки клиенту " << addr << " (errno: " << errno << ")" << std::endl;
+            std::cerr << "[Send All Active] Ошибка отправки клиенту " << addr << " (errno: " << errno << ")" <<
+                    std::endl;
         } else {
             sent_count++;
         }
     }
-    // std::cout << "[Send All Active] Сообщение отправлено " << sent_count << " активным клиентам." << std::endl; // Можно убрать лог об успешной отправке
+    // std::cout << "[Send All Active] Сообщение отправлено " << sent_count << " активным клиентам." << std::endl;
 }
 
-// Отправка сообщения только участникам текущего раунда, которые еще АКТИВНЫ
 void send_to_participants(const std::string &message, const std::vector<std::string> &participants) {
-    // std::cout << "[Send Participants] Отправка сообщения активным участникам раунда: \"" << message << "\"" << std::endl; // Можно убрать лог
+    // std::cout << "[Send Participants] Отправка сообщения активным участникам раунда: \"" << message << "\"" << std::endl;
     std::lock_guard<std::mutex> lock(clients_mutex);
     int sent_count = 0;
     for (const auto &addr: participants) {
         if (!clients.count(addr) || !clients[addr].active) {
-            // Проверяем И наличие И активность
-            continue; // Пропускаем неактивных/ненайденных
+            continue;
         }
 
         size_t colon = addr.find(':');
@@ -153,25 +144,19 @@ void send_to_participants(const std::string &message, const std::vector<std::str
             sent_count++;
         }
     }
-    // std::cout << "[Send Participants] Сообщение отправлено " << sent_count << " активным участникам раунда." << std::endl; // Можно убрать
+    // std::cout << "[Send Participants] Сообщение отправлено " << sent_count << " активным участникам раунда." << std::endl;
 }
 
 
-// Определение победителя раунда (учитываем только активных)
 void determine_winner(std::vector<std::string> &participants) {
     std::cout << "[Game Logic] Определение победителя раунда..." << std::endl;
     std::unordered_map<GameChoice, std::vector<std::string> > choice_map;
     std::string choices_log = "Выборы раунда (от активных): ";
-    std::vector<std::string> actual_participants_this_round; // Кто был активен и сделал валидный выбор
-
-    {
-        // Блокируем оба мьютекса
+    std::vector<std::string> actual_participants_this_round; {
         std::lock_guard<std::mutex> game_lock(game_mutex);
         std::lock_guard<std::mutex> client_lock(clients_mutex);
         for (const auto &addr: participants) {
-            // Проверяем только тех, кто был в начале раунда
             if (!clients.count(addr) || !clients[addr].active) {
-                // Игнорируем неактивных при подведении итогов
                 continue;
             }
             if (current_choices.count(addr)) {
@@ -181,22 +166,20 @@ void determine_winner(std::vector<std::string> &participants) {
                     choices_log += clients[addr].name + "->" + choice_to_string(choice) + "; ";
                     actual_participants_this_round.push_back(addr);
                 } else {
-                    // Игнорируем неверный выбор
+                    std::cout << "[Game Logic] Активный участник " << clients[addr].name << " (" << addr <<
+                            ") сделал невалидный выбор." << std::endl;
                 }
             } else {
-                // Активный игрок не сделал выбор вовремя
                 std::cout << "[Game Logic] Активный участник " << clients[addr].name << " (" << addr <<
                         ") не сделал выбор." << std::endl;
             }
         }
-    } // Мьютексы освобождаются
+    }
     std::cout << "[Game Logic] " << choices_log << std::endl;
 
-    // Если никто из активных не сделал валидный выбор
     if (actual_participants_this_round.empty()) {
         std::cout << "[Game Logic] Никто из активных участников раунда не сделал валидный выбор." << std::endl;
         send_to_all_active("НИКТО НЕ СДЕЛАЛ ВЫБОР! Ничья. Новый раунд...");
-        // Из списка участников удаляем всех, т.к. никто не прошел дальше
         participants.clear();
         return;
     }
@@ -211,7 +194,7 @@ void determine_winner(std::vector<std::string> &participants) {
 
     if (valid_choices_type_count == 3 || valid_choices_type_count == 1) {
         round_result_msg = "НИЧЬЯ! Новый раунд...";
-        participants = actual_participants_this_round; // Продолжают те, кто сделал валидный выбор
+        participants = actual_participants_this_round;
     } else if (valid_choices_type_count == 2) {
         if (rock && scissors) {
             winners = choice_map[ROCK];
@@ -226,35 +209,30 @@ void determine_winner(std::vector<std::string> &participants) {
             round_result_msg = "НИЧЬЯ (неожиданно)! Новый раунд...";
             participants = actual_participants_this_round;
         }
-        participants = winners; // Победители проходят дальше
+        participants = winners;
     } else {
-        // valid_choices_type_count == 0 (не должно случиться при проверке actual_participants_this_round.empty())
         round_result_msg = "НИЧЬЯ (ошибка логики)! Новый раунд...";
         participants = actual_participants_this_round;
     }
 
     std::cout << "[Game Logic] Результат раунда: " << round_result_msg << ". Следующий раунд с " << participants.size()
             << " участниками." << std::endl;
-    send_to_all_active(round_result_msg); // Отправляем результат ВСЕМ АКТИВНЫМ
+    send_to_all_active(round_result_msg);
 }
 
 
-// Один раунд игры
 void game_round(std::vector<std::string> &participants) {
     if (!server_running) return;
     std::cout << "[Game Round] Начало раунда для " << participants.size() << " участников." << std::endl; {
-        // Очищаем выборы предыдущего раунда
         std::lock_guard<std::mutex> lock(game_mutex);
         current_choices.clear();
     }
 
-    // Отправляем команду CHOOSE только активным участникам текущего раунда
-    send_to_participants("CHOOSE", participants); // Функция сама проверит активность
+    send_to_participants("CHOOSE", participants);
 
     std::cout << "[Game Round] Ожидание выборов " << GAME_TIMEOUT << " секунд..." << std::endl;
     auto start_time = std::chrono::steady_clock::now();
 
-    // Определяем, от скольких активных участников мы ждем ответа
     size_t expected_choices_count = 0; {
         std::lock_guard<std::mutex> lock(clients_mutex);
         for (const auto &p_addr: participants) {
@@ -270,7 +248,6 @@ void game_round(std::vector<std::string> &participants) {
         if (!server_running) return;
 
         size_t current_choice_count = 0; {
-            // Считаем, сколько АКТИВНЫХ УЧАСТНИКОВ уже сделали ВАЛИДНЫЙ выбор
             std::lock_guard<std::mutex> game_lock(game_mutex);
             std::lock_guard<std::mutex> client_lock(clients_mutex);
             for (const auto &p_addr: participants) {
@@ -279,12 +256,11 @@ void game_round(std::vector<std::string> &participants) {
                     current_choice_count++;
                 }
             }
-        } // Мьютексы освобождаются
+        }
 
-        // Если все, кого мы ожидали, сделали выбор - выходим
-        // Проверяем > 0, чтобы не выйти, если ожидалось 0 (все стали неактивны)
+
         if (expected_choices_count > 0 && current_choice_count >= expected_choices_count) {
-            // std::cout << "[Game Round] Все " << expected_choices_count << " ожидаемых участников сделали выбор." << std::endl; // Убираем лог
+            // std::cout << "[Game Round] Все " << expected_choices_count << " ожидаемых участников сделали выбор." << std::endl;
             break;
         }
         usleep(100000);
@@ -294,11 +270,9 @@ void game_round(std::vector<std::string> &participants) {
         std::cout << "[Game Round] Время ожидания выборов (" << GAME_TIMEOUT << "с) истекло." << std::endl;
     }
 
-    // Определяем победителя этого раунда
-    determine_winner(participants); // participants обновляется по результатам
+    determine_winner(participants);
 }
 
-// Поток для управления игрой
 void start_game() {
     if (!server_running) return;
     std::cout << "[Game Manager] Попытка начать игру..." << std::endl;
@@ -309,23 +283,19 @@ void start_game() {
     }
 
     std::vector<std::string> participants;
-    int active_clients_count = 0;
-    // Собираем только АКТИВНЫХ участников для начала игры
-    {
+    int active_clients_count = 0; {
         std::lock_guard<std::mutex> lock(clients_mutex);
         for (const auto &[addr, client]: clients) {
             if (client.active) {
-                // Играем только с активными
                 participants.push_back(addr);
                 active_clients_count++;
             }
         }
-    } // clients_mutex освобождается
+    }
 
     if (active_clients_count < 2) {
         std::cout << "[Game Manager] Для игры нужно минимум 2 активных участника! Сейчас: "
                 << active_clients_count << "\n";
-        // send_to_all_active("Для игры нужно минимум 2 активных клиента!"); // Убираем спам
         return;
     }
 
@@ -334,7 +304,6 @@ void start_game() {
     game_running = true;
 
     while (participants.size() > 1 && server_running && game_running) {
-        // Перед началом раунда удаляем неактивных из списка участников
         {
             std::lock_guard<std::mutex> lock(clients_mutex);
             participants.erase(std::remove_if(participants.begin(), participants.end(),
@@ -344,27 +313,26 @@ void start_game() {
                                participants.end());
         }
         if (participants.size() < 2) {
-            // Проверяем снова после удаления неактивных
             std::cout << "[Game Manager] Недостаточно активных участников (" << participants.size() <<
                     ") для продолжения игры." << std::endl;
             if (!participants.empty()) {
-                // Если остался один, он победитель
                 break;
             } else {
-                // Если ноль
                 send_to_all_active("Все участники выбыли или стали неактивны!");
                 game_running = false;
                 std::cout << "[Game Manager] Поток игры завершен (нет активных)." << std::endl;
-                std::cout << "\n[Admin] Команды: \n 1:Железо \n 2:Имена(все) \n 3:Игра \n 4:Откл(активных) \n 5:Статус(все) \n 6:Активные \n 7:Выход > " << std::flush;
-                return; // Завершаем поток игры
+                std::cout <<
+                        "\n[Admin] Команды: \n 1:Железо \n 2:Имена(все) \n 3:Игра \n 4:Откл(активных) \n 5:Статус(все) \n 6:Активные \n 7:Выход > "
+                        << std::flush;
+                return;
             }
         }
 
-        game_round(participants); // participants обновляется внутри по итогам раунда
+        game_round(participants);
         if (!server_running || !game_running) break;
         if (participants.size() > 1) {
             std::cout << "[Game Manager] Пауза 1 секунду перед следующим раундом..." << std::endl;
-            sleep(1); // Уменьшим паузу
+            sleep(1);
         }
     }
 
@@ -387,11 +355,11 @@ void start_game() {
 
     game_running = false;
     std::cout << "[Game Manager] Поток игры завершен." << std::endl;
-    std::cout << "\n[Admin] Команды: \n 1:Железо \n 2:Имена(все) \n 3:Игра \n 4:Откл(активных) \n 5:Статус(все) \n 6:Активные \n 7:Выход > "
+    std::cout <<
+            "\n[Admin] Команды: \n 1:Железо \n 2:Имена(все) \n 3:Игра \n 4:Откл(активных) \n 5:Статус(все) \n 6:Активные \n 7:Выход > "
             << std::flush;
 }
 
-// Поток для обработки команд администратора с консоли
 void handle_commands() {
     std::cout << "[Admin Thread] Поток обработки команд запущен. Введите команду." << std::endl;
     std::string cmd;
@@ -413,7 +381,6 @@ void handle_commands() {
         cmd.erase(cmd.find_last_not_of(" \t\n\r") + 1);
 
         if (cmd == "1") {
-            // Железо (всех)
             std::lock_guard<std::mutex> lock(clients_mutex);
             std::cout << "\n[Admin] Информация об оборудовании клиентов:\n";
             if (clients.empty()) { std::cout << "  <Нет зарегистрированных клиентов>\n"; } else {
@@ -423,7 +390,6 @@ void handle_commands() {
                 }
             }
         } else if (cmd == "2") {
-            // Имена (всех, со статусом)
             std::lock_guard<std::mutex> lock(clients_mutex);
             std::cout << "\n[Admin] Имена клиентов (статус):\n";
             if (clients.empty()) { std::cout << "  <Нет зарегистрированных клиентов>\n"; } else {
@@ -432,17 +398,14 @@ void handle_commands() {
                 }
             }
         } else if (cmd == "3") {
-            // Начать игру (с активными)
             if (game_running) { std::cout << "[Admin] Игра уже идет." << std::endl; } else {
                 std::cout << "[Admin] Запуск игры в отдельном потоке..." << std::endl;
                 std::thread(start_game).detach();
             }
         } else if (cmd == "4") {
-            // Отключить (только активных)
             std::cout << "[Admin] Отправка команды SHUTDOWN всем АКТИВНЫМ клиентам..." << std::endl;
             send_to_all_active("SHUTDOWN");
         } else if (cmd == "5") {
-            // Статус (всех)
             std::lock_guard<std::mutex> lock(clients_mutex);
             std::cout << "\n[Admin] Список зарегистрированных клиентов и их статус:\n";
             std::cout << "--------------------------------\n";
@@ -457,7 +420,6 @@ void handle_commands() {
                 }
             }
         } else if (cmd == "6") {
-            // НОВАЯ КОМАНДА: Показать только активных
             std::lock_guard<std::mutex> lock(clients_mutex);
             std::cout << "\n[Admin] Список АКТИВНЫХ клиентов:\n";
             int active_count = 0;
@@ -473,7 +435,6 @@ void handle_commands() {
                 std::cout << "  Всего активных: " << active_count << std::endl;
             }
         } else if (cmd == "7") {
-            // Выход
             std::cout << "[Admin] Команда на выход, инициируем остановку сервера..." << std::endl;
             handle_signal(0);
         } else {
@@ -502,11 +463,9 @@ int main() {
     server_addr.sin_port = htons(PORT);
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    // Установка SO_REUSEADDR, чтобы можно было быстро перезапустить сервер
     int reuse = 1;
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
         perror("[Server Main] setsockopt(SO_REUSEADDR) failed");
-        // Не критично, но предупреждаем
     }
 
 
@@ -517,7 +476,6 @@ int main() {
     }
     std::cout << "[Server Main] Серверный сокет привязан к порту " << PORT << "." << std::endl;
 
-    // ВОЗВРАЩАЕМ запуск потока update_clients
     std::thread update_thread(update_clients);
     std::thread command_thread(handle_commands);
 
@@ -542,7 +500,6 @@ int main() {
             inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
             std::string addr = std::string(ip) + ":" + std::to_string(ntohs(client_addr.sin_port));
 
-            // Обработка сообщения
             if (msg.rfind("REGISTER:", 0) == 0) {
                 size_t first_colon = 9;
                 size_t second_colon = msg.find(':', first_colon);
@@ -567,13 +524,12 @@ int main() {
             } else if (msg == "PING") {
                 std::lock_guard<std::mutex> lock(clients_mutex);
                 if (clients.count(addr)) {
-                    clients[addr].last_seen = time(nullptr); // ОБНОВЛЯЕМ ВРЕМЯ
+                    clients[addr].last_seen = time(nullptr);
                     if (!clients[addr].active) {
-                        // Если клиент был неактивен, логируем возвращение
                         std::cout << "[Server Main] Клиент " << clients[addr].name << " (" << addr <<
                                 ") снова активен (получен PING)." << std::endl;
                     }
-                    clients[addr].active = true; // ОБНОВЛЯЕМ СТАТУС
+                    clients[addr].active = true;
                 } else {
                     std::cout << "[Server Main] Получен PING от НЕИЗВЕСТНОГО клиента " << addr << ". Игнорируется." <<
                             std::endl;
@@ -589,9 +545,9 @@ int main() {
                             current_choices[addr] = choice;
                             std::cout << "[Server Main] Активный игрок " << clients[addr].name << " (" << addr <<
                                     ") выбрал: " << msg << std::endl;
-                        } // Иначе выбор игнорируется (лог не пишем, чтобы не спамить)
-                    } // Невалидный выбор тоже игнорируется
-                } // Если игра не идет, выбор игнорируется
+                        }
+                    }
+                }
             } else {
                 std::cout << "[Server Main] Получено неизвестное сообщение от " << addr << ": " << msg << std::endl;
             }
