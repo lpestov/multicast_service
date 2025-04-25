@@ -1,0 +1,29 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: game_server
+    ports:
+      - "8080:8080/udp"
+    networks:
+      - game_net
+    stdin_open: true
+    tty: true
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    depends_on:
+      - server
+    networks:
+      - game_net
+    deploy:
+      replicas: 3
+    command: >
+      bash -c './client Client_$$(hostname)'
+
+networks:
+  game_net:
+    driver: bridge
