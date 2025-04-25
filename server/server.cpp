@@ -540,7 +540,6 @@ int main() {
                     if (choice != INVALID) {
                         std::lock_guard<std::mutex> clients_lock(clients_mutex);
                         if (clients.count(addr) && clients[addr].active) {
-                            // Принимаем только от активных
                             std::lock_guard<std::mutex> game_lock(game_mutex);
                             current_choices[addr] = choice;
                             std::cout << "[Server Main] Активный игрок " << clients[addr].name << " (" << addr <<

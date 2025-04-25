@@ -203,6 +203,7 @@ int main(int argc, char *argv[]) {
         server_listener_thread.join();
     }
 
+    close(client_socket);
     std::cout << "[" << client_name << "] Клиент завершил работу." << std::endl;
     return 0;
 }
