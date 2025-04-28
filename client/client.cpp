@@ -89,6 +89,9 @@ void register_client() {
 }
 
 void handle_server_commands() {
+    // задержка ответа
+    // std::uniform_int_distribution<> delay_distrib(10, 20);
+
     char buffer[1024];
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -113,6 +116,12 @@ void handle_server_commands() {
             inet_ntop(AF_INET, &server_addr_tmp.sin_addr, sender_ip, sizeof(sender_ip));
 
             if (cmd == "CHOOSE") {
+
+                // задержка ответа
+                // int delay_s = delay_distrib(gen);
+                // std::cout << "[" << client_name << "] Получена команда CHOOSE, задержка " << delay_s << " секунд." << std::endl;
+                // std::this_thread::sleep_for(std::chrono::seconds(delay_s));
+
                 std::string choice = options[distrib(gen)];
                 std::cout << "[" << client_name << "] Получена команда CHOOSE, отправляем: " << choice << std::endl;
                 ssize_t bytes_sent = sendto(client_socket, choice.c_str(), choice.size(), 0,
@@ -177,8 +186,18 @@ int main(int argc, char *argv[]) {
 
     std::cout << "[" << client_name << "] Вход в основной цикл отправки PING." << std::endl;
     time_t last_ping_log_time = 0;
+
+    // для тестирования задержки пинга
+    // std::random_device rd;
+    // std::mt19937 gen(rd());
+    // std::uniform_int_distribution<> ping_delay(5, 15);
+
     while (running) {
         sleep(3);
+
+        // int delay = ping_delay(gen);
+        // std::cout << "[" << client_name << "] Ожидание " << delay << " секунд перед отправкой PING..." << std::endl;
+        // std::this_thread::sleep_for(std::chrono::seconds(delay));
         if (!running) break;
 
         ssize_t bytes_sent = sendto(client_socket, "PING", 4, 0,
