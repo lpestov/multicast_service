@@ -30,7 +30,7 @@ This project consists of a server and client components that communicate via UDP
 - **Client hardware reporting**: Clients report CPU and RAM information
 - **Administrator interface**: Server provides commands to monitor and control the system
 
-## Building and Running
+## Building and Running containers
 
 The project uses Docker for containerization:
 
@@ -48,3 +48,17 @@ The system uses a simple text-based protocol over UDP:
 - `CHOOSE` - Server request for client choice
 - `ROCK`, `PAPER`, `SCISSORS` - Client choices
 - `SHUTDOWN` - Server command to terminate clients
+
+## Testing
+- Commands to print out active iptables rules and ports in usage
+```sh
+sudo ss -lptu
+sudo iptables -L -nv
+```
+- Basic commands for vagrant
+```sh
+vagrant up --provision # Set up stands
+vagrant halt # Shutdown stands gracefully
+vagrant reload # Reload stands gracefully
+vagrant destroy -f # Destroy stands forcely
+```
